@@ -26,6 +26,8 @@ myasync.mySeries({
 
 [![Build Status via Travis CI](https://travis-ci.org/caolan/async.svg?branch=master)](https://travis-ci.org/caolan/async)
 [![NPM version](http://img.shields.io/npm/v/async.svg)](https://www.npmjs.org/package/async)
+[![Coverage Status](https://coveralls.io/repos/caolan/async/badge.svg?branch=master)](https://coveralls.io/r/caolan/async?branch=master)
+[![Join the chat at https://gitter.im/caolan/async](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/caolan/async?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
 
 Async is a utility module which provides straight-forward, powerful functions
@@ -36,8 +38,7 @@ it can also be used directly in the browser.
 Async is also installable via:
 
 - [bower](http://bower.io/): `bower install async`
-- [component](https://github.com/component/component): `component install
-  caolan/async`
+- [component](https://github.com/component/component): `component install caolan/async`
 - [jam](http://jamjs.org/): `jam install async`
 - [spm](http://spmjs.io/): `spm install async`
 
@@ -50,7 +51,7 @@ callback as the last argument of your `async` function.
 
 ## Quick Examples
 
-```javascript
+```js
 async.map(['file1','file2','file3'], fs.stat, function(err, results){
     // results is now an array of stats for each file
 });
@@ -74,7 +75,66 @@ There are many more functions available so take a look at the docs below for a
 full list. This module aims to be comprehensive, so if you feel anything is
 missing please create a GitHub issue for it.
 
-## Common Pitfalls
+## Common Pitfalls <sub>[(StackOverflow)](http://stackoverflow.com/questions/tagged/async.js)</sub>
+### Synchronous iteration functions
+
+If you get an error like `RangeError: Maximum call stack size exceeded.` or other stack overflow issues when using async, you are likely using a synchronous iterator.  By *synchronous* we mean a function that calls its callback on the same tick in the javascript event loop, without doing any I/O or using any timers.  Calling many callbacks iteratively will quickly overflow the stack. If you run into this issue, just defer your callback with `async.setImmediate` to start a new call stack on the next tick of the event loop.
+
+This can also arise by accident if you callback early in certain cases:
+
+```js
+async.eachSeries(hugeArray, function iterator(item, callback) {
+    if (inCache(item)) {
+        callback(null, cache[item]); // if many items are cached, you'll overflow
+    } else {
+        doSomeIO(item, callback);
+    }
+}, function done() {
+    //...
+});
+```
+
+Just change it to:
+
+```js
+async.eachSeries(hugeArray, function iterator(item, callback) {
+    if (inCache(item)) {
+        async.setImmediate(function () {
+            callback(null, cache[item]);
+        });
+    } else {
+        doSomeIO(item, callback);
+    //...
+```
+
+Async guards against synchronous functions in some, but not all, cases.  If you are still running into stack overflows, you can defer as suggested above, or wrap functions with [`async.ensureAsync`](#ensureAsync)  Functions that are asynchronous by their nature do not have this problem and don't need the extra callback deferral.
+
+If JavaScript's event loop is still a bit nebulous, check out [this article](http://blog.carbonfive.com/2013/10/27/the-javascript-event-loop-explained/) or [this talk](http://2014.jsconf.eu/speakers/philip-roberts-what-the-heck-is-the-event-loop-anyway.html) for more detailed information about how it works.
+
+
+### Multiple callbacks
+
+Make sure to always `return` when calling a callback early, otherwise you will cause multiple callbacks and unpredictable behavior in many cases.
+
+```js
+async.waterfall([
+    function (callback) {
+        getSomething(options, function (err, result) {
+            if (err) {
+                callback(new Error("failed getting something:" + err.message));
+                // we should return here
+            }
+            // since we did not return, this callback still will be called and
+            // `processData` will be called twice
+            callback(null, result);
+        });
+    },
+    processData
+], done)
+```
+
+It is always good practice to `return callback(err, result)`  whenever a callback call is not the last statement of a function.
+
 
 ### Binding a context to an iterator
 
@@ -85,28 +145,28 @@ a method of another library isn't working as an iterator, study this example:
 ```js
 // Here is a simple object with an (unnecessarily roundabout) squaring method
 var AsyncSquaringLibrary = {
-  squareExponent: 2,
-  square: function(number, callback){ 
-    var result = Math.pow(number, this.squareExponent);
-    setTimeout(function(){
-      callback(null, result);
-    }, 200);
-  }
+    squareExponent: 2,
+    square: function(number, callback){
+        var result = Math.pow(number, this.squareExponent);
+        setTimeout(function(){
+            callback(null, result);
+        }, 200);
+    }
 };
 
 async.map([1, 2, 3], AsyncSquaringLibrary.square, function(err, result){
-  // result is [NaN, NaN, NaN]
-  // This fails because the `this.squareExponent` expression in the square
-  // function is not evaluated in the context of AsyncSquaringLibrary, and is
-  // therefore undefined.
+    // result is [NaN, NaN, NaN]
+    // This fails because the `this.squareExponent` expression in the square
+    // function is not evaluated in the context of AsyncSquaringLibrary, and is
+    // therefore undefined.
 });
 
 async.map([1, 2, 3], AsyncSquaringLibrary.square.bind(AsyncSquaringLibrary), function(err, result){
-  // result is [1, 4, 9]
-  // With the help of bind we can attach a context to the iterator before
-  // passing it to async. Now the square function will be executed in its 
-  // 'home' AsyncSquaringLibrary context and the value of `this.squareExponent`
-  // will be as expected.
+    // result is [1, 4, 9]
+    // With the help of bind we can attach a context to the iterator before
+    // passing it to async. Now the square function will be executed in its
+    // 'home' AsyncSquaringLibrary context and the value of `this.squareExponent`
+    // will be as expected.
 });
 ```
 
@@ -118,7 +178,7 @@ Alternatively, you can install using Node Package Manager (`npm`):
 
     npm install myasync
 
-As well as using Bower: 
+As well as using Bower:
 
     bower install async
 
@@ -126,7 +186,7 @@ __Development:__ [async.js](https://github.com/caolan/async/raw/master/lib/async
 
 ## In the Browser
 
-So far it's been tested in IE6, IE7, IE8, FF3.6 and Chrome 5. 
+So far it's been tested in IE6, IE7, IE8, FF3.6 and Chrome 5.
 
 Usage:
 
@@ -143,71 +203,62 @@ Usage:
 
 ## Documentation
 
+Some functions are also available in the following forms:
+* `<name>Series` - the same as `<name>` but runs only a single async operation at a time
+* `<name>Limit` - the same as `<name>` but runs a maximum of `limit` async operations at a time
+
 ### Collections
 
-* [`each`](#each)
-* [`eachSeries`](#eachSeries)
-* [`eachLimit`](#eachLimit)
-* [`forEachOf`](#forEachOf)
-* [`forEachOfSeries`](#forEachOfSeries)
-* [`forEachOfLimit`](#forEachOfLimit)
-* [`map`](#map)
-* [`mapSeries`](#mapSeries)
-* [`mapLimit`](#mapLimit)
-* [`filter`](#filter)
-* [`filterSeries`](#filterSeries)
-* [`reject`](#reject)
-* [`rejectSeries`](#rejectSeries)
-* [`reduce`](#reduce)
-* [`reduceRight`](#reduceRight)
-* [`detect`](#detect)
-* [`detectSeries`](#detectSeries)
+* [`each`](#each), `eachSeries`, `eachLimit`
+* [`forEachOf`](#forEachOf), `forEachOfSeries`, `forEachOfLimit`
+* [`map`](#map), `mapSeries`, `mapLimit`
+* [`filter`](#filter), `filterSeries`, `filterLimit`
+* [`reject`](#reject), `rejectSeries`, `rejectLimit`
+* [`reduce`](#reduce), [`reduceRight`](#reduceRight)
+* [`detect`](#detect), `detectSeries`, `detectLimit`
 * [`sortBy`](#sortBy)
-* [`some`](#some)
-* [`every`](#every)
-* [`concat`](#concat)
-* [`concatSeries`](#concatSeries)
+* [`some`](#some), `someLimit`
+* [`every`](#every), `everyLimit`
+* [`concat`](#concat), `concatSeries`
 
 ### Control Flow
 
 * [`series`](#seriestasks-callback)
-* [`parallel`](#parallel)
-* [`parallelLimit`](#parallellimittasks-limit-callback)
-* [`whilst`](#whilst)
-* [`doWhilst`](#doWhilst)
-* [`until`](#until)
-* [`doUntil`](#doUntil)
+* [`parallel`](#parallel), `parallelLimit`
+* [`whilst`](#whilst), [`doWhilst`](#doWhilst)
+* [`until`](#until), [`doUntil`](#doUntil)
+* [`during`](#during), [`doDuring`](#doDuring)
 * [`forever`](#forever)
 * [`waterfall`](#waterfall)
 * [`compose`](#compose)
 * [`seq`](#seq)
-* [`applyEach`](#applyEach)
-* [`applyEachSeries`](#applyEachSeries)
-* [`queue`](#queue)
-* [`priorityQueue`](#priorityQueue)
+* [`applyEach`](#applyEach), `applyEachSeries`
+* [`queue`](#queue), [`priorityQueue`](#priorityQueue)
 * [`cargo`](#cargo)
 * [`auto`](#auto)
 * [`retry`](#retry)
 * [`iterator`](#iterator)
-* [`apply`](#apply)
-* [`nextTick`](#nextTick)
-* [`times`](#times)
-* [`timesSeries`](#timesSeries)
+* [`times`](#times), `timesSeries`, `timesLimit`
 
 ### Utils
 
+* [`apply`](#apply)
+* [`nextTick`](#nextTick)
 * [`memoize`](#memoize)
 * [`unmemoize`](#unmemoize)
+* [`ensureAsync`](#ensureAsync)
+* [`constant`](#constant)
+* [`asyncify`](#asyncify)
+* [`wrapSync`](#wrapSync)
 * [`log`](#log)
 * [`dir`](#dir)
 * [`noConflict`](#noConflict)
 
-
 ## Collections
 
-<a name="forEach" />
-<a name="each" />
-### each(arr, iterator, callback)
+<a name="forEach"></a>
+<a name="each"></a>
+### each(arr, iterator, [callback])
 
 Applies the function `iterator` to each item in `arr`, in parallel.
 The `iterator` is called with an item from the list, and a callback for when it
@@ -221,11 +272,11 @@ __Arguments__
 
 * `arr` - An array to iterate over.
 * `iterator(item, callback)` - A function to apply to each item in `arr`.
-  The iterator is passed a `callback(err)` which must be called once it has 
-  completed. If no error has occurred, the `callback` should be run without 
+  The iterator is passed a `callback(err)` which must be called once it has
+  completed. If no error has occurred, the `callback` should be run without
   arguments or with an explicit `null` argument.  The array index is not passed
   to the iterator.  If you need the index, use [`forEachOf`](#forEachOf).
-* `callback(err)` - A callback which is called when all `iterator` functions
+* `callback(err)` - *Optional* A callback which is called when all `iterator` functions
   have finished, or an error occurs.
 
 __Examples__
@@ -241,13 +292,13 @@ async.each(openFiles, saveFile, function(err){
 ```
 
 ```js
-// assuming openFiles is an array of file names 
+// assuming openFiles is an array of file names
 
 async.each(openFiles, function(file, callback) {
-  
+
   // Perform operation on file here.
   console.log('Processing file ' + file);
-  
+
   if( file.length > 32 ) {
     console.log('This file name is too long');
     callback('File name too long');
@@ -268,69 +319,28 @@ async.each(openFiles, function(file, callback) {
 });
 ```
 
----------------------------------------
+__Related__
 
-<a name="forEachSeries" />
-<a name="eachSeries" />
-### eachSeries(arr, iterator, callback)
-
-The same as [`each`](#each), only `iterator` is applied to each item in `arr` in
-series. The next `iterator` is only called once the current one has completed. 
-This means the `iterator` functions will complete in order.
-
+* eachSeries(arr, iterator, [callback])
+* eachLimit(arr, limit, iterator, [callback])
 
 ---------------------------------------
 
-<a name="forEachLimit" />
-<a name="eachLimit" />
-### eachLimit(arr, limit, iterator, callback)
-
-The same as [`each`](#each), only no more than `limit` `iterator`s will be simultaneously 
-running at any time.
-
-Note that the items in `arr` are not processed in batches, so there is no guarantee that 
-the first `limit` `iterator` functions will complete before any others are started.
-
-__Arguments__
-
-* `arr` - An array to iterate over.
-* `limit` - The maximum number of `iterator`s to run at any time.
-* `iterator(item, callback)` - A function to apply to each item in `arr`.
-  The iterator is passed a `callback(err)` which must be called once it has 
-  completed. If no error has occurred, the callback should be run without 
-  arguments or with an explicit `null` argument.
-* `callback(err)` - A callback which is called when all `iterator` functions
-  have finished, or an error occurs.
-
-__Example__
-
-```js
-// Assume documents is an array of JSON objects and requestApi is a
-// function that interacts with a rate-limited REST api.
-
-async.eachLimit(documents, 20, requestApi, function(err){
-    // if any of the saves produced an error, err would equal that error
-});
-```
-
----------------------------------------
-
-<a name="forEachOf" />
-<a name="eachOf" />
-
-### forEachOf(obj, iterator, callback)
+<a name="forEachOf"></a>
+<a name="eachOf"></a>
+### forEachOf(obj, iterator, [callback])
 
 Like `each`, except that it iterates over objects, and passes the key as the second argument to the iterator.
 
 __Arguments__
 
 * `obj` - An object or array to iterate over.
-* `iterator(item, key, callback)` - A function to apply to each item in `obj`. 
-The `key` is the item's key, or index in the case of an array. The iterator is 
+* `iterator(item, key, callback)` - A function to apply to each item in `obj`.
+The `key` is the item's key, or index in the case of an array. The iterator is
 passed a `callback(err)` which must be called once it has completed. If no
 error has occurred, the callback should be run without arguments or with an
 explicit `null` argument.
-* `callback(err)` - A callback which is called when all `iterator` functions have finished, or an error occurs.
+* `callback(err)` - *Optional* A callback which is called when all `iterator` functions have finished, or an error occurs.
 
 __Example__
 
@@ -339,63 +349,49 @@ var obj = {dev: "/dev.json", test: "/test.json", prod: "/prod.json"};
 var configs = {};
 
 async.forEachOf(obj, function (value, key, callback) {
-  fs.readFile(__dirname + value, "utf8", function (err, data) {
-    if (err) return callback(err);
-    try {
-      configs[key] = JSON.parse(data);
-    } catch (e) {
-      return callback(e);
-    }
-    callback();
-  })
+    fs.readFile(__dirname + value, "utf8", function (err, data) {
+        if (err) return callback(err);
+        try {
+            configs[key] = JSON.parse(data);
+        } catch (e) {
+            return callback(e);
+        }
+        callback();
+    });
 }, function (err) {
-  if (err) console.error(err.message);
-  // configs is now a map of JSON data
-  doSomethingWith(configs);
+    if (err) console.error(err.message);
+    // configs is now a map of JSON data
+    doSomethingWith(configs);
 })
 ```
 
----------------------------------------
+__Related__
 
-<a name="forEachOfSeries" />
-<a name="eachOfSeries" />
-
-### forEachOfSeries(obj, iterator, callback)
-
-Like [`forEachOf`](#forEachOf), except only one `iterator` is run at a time.  The order of execution is not guaranteed for objects, but it will be guaranteed for arrays.
+* forEachOfSeries(obj, iterator, [callback])
+* forEachOfLimit(obj, limit, iterator, [callback])
 
 ---------------------------------------
 
-<a name="forEachOfLimit" />
-<a name="eachOfLimit" />
-
-### forEachOfLimit(obj, limit, iterator, callback)
-
-Like [`forEachOf`](#forEachOf), except the number of `iterator`s running at a given time is controlled by `limit`.
-
-
----------------------------------------
-
-<a name="map" />
-### map(arr, iterator, callback)
+<a name="map"></a>
+### map(arr, iterator, [callback])
 
 Produces a new array of values by mapping each value in `arr` through
 the `iterator` function. The `iterator` is called with an item from `arr` and a
-callback for when it has finished processing. Each of these callback takes 2 arguments: 
-an `error`, and the transformed item from `arr`. If `iterator` passes an error to its 
+callback for when it has finished processing. Each of these callback takes 2 arguments:
+an `error`, and the transformed item from `arr`. If `iterator` passes an error to its
 callback, the main `callback` (for the `map` function) is immediately called with the error.
 
 Note, that since this function applies the `iterator` to each item in parallel,
-there is no guarantee that the `iterator` functions will complete in order. 
+there is no guarantee that the `iterator` functions will complete in order.
 However, the results array will be in the same order as the original `arr`.
 
 __Arguments__
 
 * `arr` - An array to iterate over.
 * `iterator(item, callback)` - A function to apply to each item in `arr`.
-  The iterator is passed a `callback(err, transformed)` which must be called once 
+  The iterator is passed a `callback(err, transformed)` which must be called once
   it has completed with an error (which can be `null`) and a transformed item.
-* `callback(err, results)` - A callback which is called when all `iterator`
+* `callback(err, results)` - *Optional* A callback which is called when all `iterator`
   functions have finished, or an error occurs. Results is an array of the
   transformed items from the `arr`.
 
@@ -407,51 +403,16 @@ async.map(['file1','file2','file3'], fs.stat, function(err, results){
 });
 ```
 
----------------------------------------
+__Related__
 
-<a name="mapSeries" />
-### mapSeries(arr, iterator, callback)
-
-The same as [`map`](#map), only the `iterator` is applied to each item in `arr` in
-series. The next `iterator` is only called once the current one has completed. 
-The results array will be in the same order as the original.
-
+* mapSeries(arr, iterator, [callback])
+* mapLimit(arr, limit, iterator, [callback])
 
 ---------------------------------------
 
-<a name="mapLimit" />
-### mapLimit(arr, limit, iterator, callback)
-
-The same as [`map`](#map), only no more than `limit` `iterator`s will be simultaneously 
-running at any time.
-
-Note that the items are not processed in batches, so there is no guarantee that 
-the first `limit` `iterator` functions will complete before any others are started.
-
-__Arguments__
-
-* `arr` - An array to iterate over.
-* `limit` - The maximum number of `iterator`s to run at any time.
-* `iterator(item, callback)` - A function to apply to each item in `arr`.
-  The iterator is passed a `callback(err, transformed)` which must be called once 
-  it has completed with an error (which can be `null`) and a transformed item.
-* `callback(err, results)` - A callback which is called when all `iterator`
-  calls have finished, or an error occurs. The result is an array of the
-  transformed items from the original `arr`.
-
-__Example__
-
-```js
-async.mapLimit(['file1','file2','file3'], 1, fs.stat, function(err, results){
-    // results is now an array of stats for each file
-});
-```
-
----------------------------------------
-
-<a name="select" />
-<a name="filter" />
-### filter(arr, iterator, callback)
+<a name="select"></a>
+<a name="filter"></a>
+### filter(arr, iterator, [callback])
 
 __Alias:__ `select`
 
@@ -466,9 +427,9 @@ __Arguments__
 
 * `arr` - An array to iterate over.
 * `iterator(item, callback)` - A truth test to apply to each item in `arr`.
-  The `iterator` is passed a `callback(truthValue)`, which must be called with a 
+  The `iterator` is passed a `callback(truthValue)`, which must be called with a
   boolean argument once it has completed.
-* `callback(results)` - A callback which is called after all the `iterator`
+* `callback(results)` - *Optional* A callback which is called after all the `iterator`
   functions have finished.
 
 __Example__
@@ -479,48 +440,37 @@ async.filter(['file1','file2','file3'], fs.exists, function(results){
 });
 ```
 
----------------------------------------
+__Related__
 
-<a name="selectSeries" />
-<a name="filterSeries" />
-### filterSeries(arr, iterator, callback)
-
-__Alias:__ `selectSeries`
-
-The same as [`filter`](#filter) only the `iterator` is applied to each item in `arr` in
-series. The next `iterator` is only called once the current one has completed. 
-The results array will be in the same order as the original.
+* filterSeries(arr, iterator, [callback])
+* filterLimit(arr, limit, iterator, [callback])
 
 ---------------------------------------
 
-<a name="reject" />
-### reject(arr, iterator, callback)
+<a name="reject"></a>
+### reject(arr, iterator, [callback])
 
 The opposite of [`filter`](#filter). Removes values that pass an `async` truth test.
 
----------------------------------------
+__Related__
 
-<a name="rejectSeries" />
-### rejectSeries(arr, iterator, callback)
-
-The same as [`reject`](#reject), only the `iterator` is applied to each item in `arr`
-in series.
-
+* rejectSeries(arr, iterator, [callback])
+* rejectLimit(arr, limit, iterator, [callback])
 
 ---------------------------------------
 
-<a name="reduce" />
-### reduce(arr, memo, iterator, callback)
+<a name="reduce"></a>
+### reduce(arr, memo, iterator, [callback])
 
 __Aliases:__ `inject`, `foldl`
 
 Reduces `arr` into a single value using an async `iterator` to return
-each successive step. `memo` is the initial state of the reduction. 
-This function only operates in series. 
+each successive step. `memo` is the initial state of the reduction.
+This function only operates in series.
 
-For performance reasons, it may make sense to split a call to this function into 
-a parallel map, and then use the normal `Array.prototype.reduce` on the results. 
-This function is for situations where each step in the reduction needs to be async; 
+For performance reasons, it may make sense to split a call to this function into
+a parallel map, and then use the normal `Array.prototype.reduce` on the results.
+This function is for situations where each step in the reduction needs to be async;
 if you can get the data before reducing it, then it's probably a good idea to do so.
 
 __Arguments__
@@ -529,11 +479,11 @@ __Arguments__
 * `memo` - The initial state of the reduction.
 * `iterator(memo, item, callback)` - A function applied to each item in the
   array to produce the next step in the reduction. The `iterator` is passed a
-  `callback(err, reduction)` which accepts an optional error as its first 
-  argument, and the state of the reduction as the second. If an error is 
-  passed to the callback, the reduction is stopped and the main `callback` is 
+  `callback(err, reduction)` which accepts an optional error as its first
+  argument, and the state of the reduction as the second. If an error is
+  passed to the callback, the reduction is stopped and the main `callback` is
   immediately called with the error.
-* `callback(err, result)` - A callback which is called after all the `iterator`
+* `callback(err, result)` - *Optional* A callback which is called after all the `iterator`
   functions have finished. Result is the reduced value.
 
 __Example__
@@ -551,33 +501,32 @@ async.reduce([1,2,3], 0, function(memo, item, callback){
 
 ---------------------------------------
 
-<a name="reduceRight" />
-### reduceRight(arr, memo, iterator, callback)
+<a name="reduceRight"></a>
+### reduceRight(arr, memo, iterator, [callback])
 
 __Alias:__ `foldr`
 
 Same as [`reduce`](#reduce), only operates on `arr` in reverse order.
 
-
 ---------------------------------------
 
-<a name="detect" />
-### detect(arr, iterator, callback)
+<a name="detect"></a>
+### detect(arr, iterator, [callback])
 
 Returns the first value in `arr` that passes an async truth test. The
 `iterator` is applied in parallel, meaning the first iterator to return `true` will
 fire the detect `callback` with that result. That means the result might not be
 the first item in the original `arr` (in terms of order) that passes the test.
 
-If order within the original `arr` is important, then look at [`detectSeries`](#detectSeries).
+If order within the original `arr` is important, then look at `detectSeries`.
 
 __Arguments__
 
 * `arr` - An array to iterate over.
 * `iterator(item, callback)` - A truth test to apply to each item in `arr`.
-  The iterator is passed a `callback(truthValue)` which must be called with a 
+  The iterator is passed a `callback(truthValue)` which must be called with a
   boolean argument once it has completed. **Note: this callback does not take an error as its first argument.**
-* `callback(result)` - A callback which is called as soon as any iterator returns
+* `callback(result)` - *Optional* A callback which is called as soon as any iterator returns
   `true`, or after all the `iterator` functions have finished. Result will be
   the first item in the array that passes the truth test (iterator) or the
   value `undefined` if none passed.  **Note: this callback does not take an error as its first argument.**
@@ -590,20 +539,15 @@ async.detect(['file1','file2','file3'], fs.exists, function(result){
 });
 ```
 
----------------------------------------
+__Related__
 
-<a name="detectSeries" />
-### detectSeries(arr, iterator, callback)
-
-The same as [`detect`](#detect), only the `iterator` is applied to each item in `arr`
-in series. This means the result is always the first in the original `arr` (in
-terms of array order) that passes the truth test.
-
+* detectSeries(arr, iterator, [callback])
+* detectLimit(arr, limit, iterator, [callback])
 
 ---------------------------------------
 
-<a name="sortBy" />
-### sortBy(arr, iterator, callback)
+<a name="sortBy"></a>
+### sortBy(arr, iterator, [callback])
 
 Sorts a list by the results of running each `arr` value through an async `iterator`.
 
@@ -614,7 +558,7 @@ __Arguments__
   The iterator is passed a `callback(err, sortValue)` which must be called once it
   has completed with an error (which can be `null`) and a value to use as the sort
   criteria.
-* `callback(err, results)` - A callback which is called after all the `iterator`
+* `callback(err, results)` - *Optional* A callback which is called after all the `iterator`
   functions have finished, or an error occurs. Results is the items from
   the original `arr` sorted by the values returned by the `iterator` calls.
 
@@ -653,8 +597,8 @@ async.sortBy([1,9,3,5], function(x, callback){
 
 ---------------------------------------
 
-<a name="some" />
-### some(arr, iterator, callback)
+<a name="some"></a>
+### some(arr, iterator, [callback])
 
 __Alias:__ `any`
 
@@ -668,9 +612,9 @@ __Arguments__
 
 * `arr` - An array to iterate over.
 * `iterator(item, callback)` - A truth test to apply to each item in the array
-  in parallel. The iterator is passed a `callback(truthValue)`` which must be 
+  in parallel. The iterator is passed a `callback(truthValue)`` which must be
   called with a boolean argument once it has completed.
-* `callback(result)` - A callback which is called as soon as any iterator returns
+* `callback(result)` - *Optional* A callback which is called as soon as any iterator returns
   `true`, or after all the iterator functions have finished. Result will be
   either `true` or `false` depending on the values of the async tests.
 
@@ -683,10 +627,14 @@ async.some(['file1','file2','file3'], fs.exists, function(result){
 });
 ```
 
+__Related__
+
+* someLimit(arr, limit, iterator, callback)
+
 ---------------------------------------
 
-<a name="every" />
-### every(arr, iterator, callback)
+<a name="every"></a>
+### every(arr, iterator, [callback])
 
 __Alias:__ `all`
 
@@ -699,11 +647,11 @@ __Arguments__
 
 * `arr` - An array to iterate over.
 * `iterator(item, callback)` - A truth test to apply to each item in the array
-  in parallel. The iterator is passed a `callback(truthValue)` which must be 
+  in parallel. The iterator is passed a `callback(truthValue)` which must be
   called with a  boolean argument once it has completed.
-* `callback(result)` - A callback which is called after all the `iterator`
-  functions have finished. Result will be either `true` or `false` depending on
-  the values of the async tests.
+* `callback(result)` - *Optional* A callback which is called as soon as any iterator returns
+  `false`, or after all the iterator functions have finished. Result will be
+  either `true` or `false` depending on the values of the async tests.
 
  **Note: the callbacks do not take an error as their first argument.**
 
@@ -715,10 +663,14 @@ async.every(['file1','file2','file3'], fs.exists, function(result){
 });
 ```
 
+__Related__
+
+* everyLimit(arr, limit, iterator, callback)
+
 ---------------------------------------
 
-<a name="concat" />
-### concat(arr, iterator, callback)
+<a name="concat"></a>
+### concat(arr, iterator, [callback])
 
 Applies `iterator` to each item in `arr`, concatenating the results. Returns the
 concatenated list. The `iterator`s are called in parallel, and the results are
@@ -729,9 +681,9 @@ __Arguments__
 
 * `arr` - An array to iterate over.
 * `iterator(item, callback)` - A function to apply to each item in `arr`.
-  The iterator is passed a `callback(err, results)` which must be called once it 
+  The iterator is passed a `callback(err, results)` which must be called once it
   has completed with an error (which can be `null`) and an array of results.
-* `callback(err, results)` - A callback which is called after all the `iterator`
+* `callback(err, results)` - *Optional* A callback which is called after all the `iterator`
   functions have finished, or an error occurs. Results is an array containing
   the concatenated results of the `iterator` function.
 
@@ -743,22 +695,19 @@ async.concat(['dir1','dir2','dir3'], fs.readdir, function(err, files){
 });
 ```
 
----------------------------------------
+__Related__
 
-<a name="concatSeries" />
-### concatSeries(arr, iterator, callback)
-
-Same as [`concat`](#concat), but executes in series instead of parallel.
+* concatSeries(arr, iterator, [callback])
 
 
 ## Control Flow
 
-<a name="series" />
+<a name="series"></a>
 ### series(tasks, [callback])
 
 Run the functions in the `tasks` array in series, each one running once the previous
 function has completed. If any functions in the series pass an error to its
-callback, no more functions are run, and `callback` is immediately called with the value of the error. 
+callback, no more functions are run, and `callback` is immediately called with the value of the error.
 Otherwise, `callback` receives an array of results when `tasks` have completed.
 
 It is also possible to use an object instead of an array. Each property will be
@@ -767,13 +716,13 @@ instead of an array. This can be a more readable way of handling results from
 [`series`](#series).
 
 **Note** that while many implementations preserve the order of object properties, the
-[ECMAScript Language Specifcation](http://www.ecma-international.org/ecma-262/5.1/#sec-8.6) 
+[ECMAScript Language Specification](http://www.ecma-international.org/ecma-262/5.1/#sec-8.6)
 explicitly states that
 
 > The mechanics and order of enumerating the properties is not specified.
 
 So if you rely on the order in which your series of functions are executed, and want
-this to work on all platforms, consider using an array. 
+this to work on all platforms, consider using an array.
 
 __Arguments__
 
@@ -781,7 +730,7 @@ __Arguments__
   a `callback(err, result)` it must call on completion with an error `err` (which can
   be `null`) and an optional `result` value.
 * `callback(err, results)` - An optional callback to run once all the functions
-  have completed. This function gets a results array (or object) containing all 
+  have completed. This function gets a results array (or object) containing all
   the result arguments passed to the `task` callbacks.
 
 __Example__
@@ -823,7 +772,7 @@ function(err, results) {
 
 ---------------------------------------
 
-<a name="parallel" />
+<a name="parallel"></a>
 ### parallel(tasks, [callback])
 
 Run the `tasks` array of functions in parallel, without waiting until the previous
@@ -831,6 +780,8 @@ function has completed. If any of the functions pass an error to its
 callback, the main `callback` is immediately called with the value of the error.
 Once the `tasks` have completed, the results are passed to the final `callback` as an
 array.
+
+**Note:** `parallel` is about kicking-off I/O tasks in parallel, not about parallel execution of code.  If your tasks do not use any timers or perform any I/O, they will actually be executed in series.  Any synchronous setup sections for each task will happen one after the other.  JavaScript remains single-threaded.
 
 It is also possible to use an object instead of an array. Each property will be
 run as a function and the results will be passed to the final `callback` as an object
@@ -840,11 +791,11 @@ instead of an array. This can be a more readable way of handling results from
 
 __Arguments__
 
-* `tasks` - An array or object containing functions to run. Each function is passed 
-  a `callback(err, result)` which it must call on completion with an error `err` 
+* `tasks` - An array or object containing functions to run. Each function is passed
+  a `callback(err, result)` which it must call on completion with an error `err`
   (which can be `null`) and an optional `result` value.
 * `callback(err, results)` - An optional callback to run once all the functions
-  have completed. This function gets a results array (or object) containing all 
+  have completed successfully. This function gets a results array (or object) containing all
   the result arguments passed to the task callbacks.
 
 __Example__
@@ -887,30 +838,13 @@ function(err, results) {
 });
 ```
 
----------------------------------------
+__Related__
 
-<a name="parallelLimit" />
-### parallelLimit(tasks, limit, [callback])
-
-The same as [`parallel`](#parallel), only `tasks` are executed in parallel 
-with a maximum of `limit` tasks executing at any time.
-
-Note that the `tasks` are not executed in batches, so there is no guarantee that 
-the first `limit` tasks will complete before any others are started.
-
-__Arguments__
-
-* `tasks` - An array or object containing functions to run, each function is passed 
-  a `callback(err, result)` it must call on completion with an error `err` (which can
-  be `null`) and an optional `result` value.
-* `limit` - The maximum number of `tasks` to run at any time.
-* `callback(err, results)` - An optional callback to run once all the functions
-  have completed. This function gets a results array (or object) containing all 
-  the result arguments passed to the `task` callbacks.
+* parallelLimit(tasks, limit, [callback])
 
 ---------------------------------------
 
-<a name="whilst" />
+<a name="whilst"></a>
 ### whilst(test, fn, callback)
 
 Repeatedly call `fn`, while `test` returns `true`. Calls `callback` when stopped,
@@ -920,10 +854,11 @@ __Arguments__
 
 * `test()` - synchronous truth test to perform before each execution of `fn`.
 * `fn(callback)` - A function which is called each time `test` passes. The function is
-  passed a `callback(err)`, which must be called once it has completed with an 
+  passed a `callback(err)`, which must be called once it has completed with an
   optional `err` argument.
-* `callback(err)` - A callback which is called after the test fails and repeated
-  execution of `fn` has stopped.
+* `callback(err, [results])` - A callback which is called after the test
+  function has failed and repeated execution of `fn` has stopped. `callback`
+  will be passed an error and any arguments passed to the final `fn`'s callback.
 
 __Example__
 
@@ -932,6 +867,62 @@ var count = 0;
 
 async.whilst(
     function () { return count < 5; },
+    function (callback) {
+        count++;
+        setTimeout(function () {
+            callback(null, count);
+        }, 1000);
+    },
+    function (err, n) {
+        // 5 seconds have passed, n = 5
+    }
+);
+```
+
+---------------------------------------
+
+<a name="doWhilst"></a>
+### doWhilst(fn, test, callback)
+
+The post-check version of [`whilst`](#whilst). To reflect the difference in
+the order of operations, the arguments `test` and `fn` are switched.
+
+`doWhilst` is to `whilst` as `do while` is to `while` in plain JavaScript.
+
+---------------------------------------
+
+<a name="until"></a>
+### until(test, fn, callback)
+
+Repeatedly call `fn` until `test` returns `true`. Calls `callback` when stopped,
+or an error occurs. `callback` will be passed an error and any arguments passed
+to the final `fn`'s callback.
+
+The inverse of [`whilst`](#whilst).
+
+---------------------------------------
+
+<a name="doUntil"></a>
+### doUntil(fn, test, callback)
+
+Like [`doWhilst`](#doWhilst), except the `test` is inverted. Note the argument ordering differs from `until`.
+
+---------------------------------------
+
+<a name="during"></a>
+### during(test, fn, callback)
+
+Like [`whilst`](#whilst), except the `test` is an asynchronous function that is passed a callback in the form of `function (err, truth)`. If error is passed to `test` or `fn`, the main callback is immediately called with the value of the error.
+
+__Example__
+
+```js
+var count = 0;
+
+async.during(
+    function (callback) {
+      return callback(null, count < 5);
+    },
     function (callback) {
         count++;
         setTimeout(callback, 1000);
@@ -944,35 +935,18 @@ async.whilst(
 
 ---------------------------------------
 
-<a name="doWhilst" />
-### doWhilst(fn, test, callback)
+<a name="doDuring"></a>
+### doDuring(fn, test, callback)
 
-The post-check version of [`whilst`](#whilst). To reflect the difference in 
-the order of operations, the arguments `test` and `fn` are switched. 
+The post-check version of [`during`](#during). To reflect the difference in
+the order of operations, the arguments `test` and `fn` are switched.
 
-`doWhilst` is to `whilst` as `do while` is to `while` in plain JavaScript.
-
----------------------------------------
-
-<a name="until" />
-### until(test, fn, callback)
-
-Repeatedly call `fn` until `test` returns `true`. Calls `callback` when stopped,
-or an error occurs.
-
-The inverse of [`whilst`](#whilst).
+Also a version of [`doWhilst`](#doWhilst) with asynchronous `test` function.
 
 ---------------------------------------
 
-<a name="doUntil" />
-### doUntil(fn, test, callback)
-
-Like [`doWhilst`](#doWhilst), except the `test` is inverted. Note the argument ordering differs from `until`.
-
----------------------------------------
-
-<a name="forever" />
-### forever(fn, errback)
+<a name="forever"></a>
+### forever(fn, [errback])
 
 Calls the asynchronous function `fn` with a callback parameter that allows it to
 call itself again, in series, indefinitely.
@@ -995,7 +969,7 @@ async.forever(
 
 ---------------------------------------
 
-<a name="waterfall" />
+<a name="waterfall"></a>
 ### waterfall(tasks, [callback])
 
 Runs the `tasks` array of functions in series, each passing their results to the next in
@@ -1005,9 +979,9 @@ the error.
 
 __Arguments__
 
-* `tasks` - An array of functions to run, each function is passed a 
+* `tasks` - An array of functions to run, each function is passed a
   `callback(err, result1, result2, ...)` it must call on completion. The first
-  argument is an error (which can be `null`) and any further arguments will be 
+  argument is an error (which can be `null`) and any further arguments will be
   passed as arguments in order to the next task.
 * `callback(err, [results])` - An optional callback to run once all the functions
   have completed. This will be passed the results of the last task's callback.
@@ -1030,12 +1004,59 @@ async.waterfall([
         callback(null, 'done');
     }
 ], function (err, result) {
-    // result now equals 'done'    
+    // result now equals 'done'
 });
+```
+Or, with named functions:
+
+```js
+async.waterfall([
+    myFirstFunction,
+    mySecondFunction,
+    myLastFunction,
+], function (err, result) {
+    // result now equals 'done'
+});
+function myFirstFunction(callback) {
+    callback(null, 'one', 'two');
+}
+function mySecondFunction(arg1, arg2, callback) {
+    // arg1 now equals 'one' and arg2 now equals 'two'
+    callback(null, 'three');
+}
+function myLastFunction(arg1, callback) {
+    // arg1 now equals 'three'
+    callback(null, 'done');
+}
+```
+
+Or, if you need to pass any argument to the first function:
+
+```js
+async.waterfall([
+    async.apply(myFirstFunction, 'zero'),
+    mySecondFunction,
+    myLastFunction,
+], function (err, result) {
+    // result now equals 'done'
+});
+function myFirstFunction(arg1, callback) {
+    // arg1 now equals 'zero'
+    callback(null, 'one', 'two');
+}
+function mySecondFunction(arg1, arg2, callback) {
+    // arg1 now equals 'one' and arg2 now equals 'two'
+    callback(null, 'three');
+}
+function myLastFunction(arg1, callback) {
+    // arg1 now equals 'three'
+    callback(null, 'done');
+}
 ```
 
 ---------------------------------------
-<a name="compose" />
+
+<a name="compose"></a>
 ### compose(fn1, fn2...)
 
 Creates a function which is a composition of the passed asynchronous
@@ -1073,7 +1094,8 @@ add1mul3(4, function (err, result) {
 ```
 
 ---------------------------------------
-<a name="seq" />
+
+<a name="seq"></a>
 ### seq(fn1, fn2...)
 
 Version of the compose function that is more natural to read.
@@ -1084,7 +1106,7 @@ Each function is executed with the `this` binding of the composed function.
 
 __Arguments__
 
-* functions... - the asynchronous functions to compose
+* `functions...` - the asynchronous functions to compose
 
 
 __Example__
@@ -1092,31 +1114,32 @@ __Example__
 ```js
 // Requires lodash (or underscore), express3 and dresende's orm2.
 // Part of an app, that fetches cats of the logged user.
-// This example uses `seq` function to avoid overnesting and error 
+// This example uses `seq` function to avoid overnesting and error
 // handling clutter.
 app.get('/cats', function(request, response) {
-  var User = request.models.User;
-  async.seq(
-    _.bind(User.get, User),  // 'User.get' has signature (id, callback(err, data))
-    function(user, fn) {
-      user.getCats(fn);      // 'getCats' has signature (callback(err, data))
-    }
-  )(req.session.user_id, function (err, cats) {
-    if (err) {
-      console.error(err);
-      response.json({ status: 'error', message: err.message });
-    } else {
-      response.json({ status: 'ok', message: 'Cats found', data: cats });
-    }
-  });
+    var User = request.models.User;
+    async.seq(
+        _.bind(User.get, User),  // 'User.get' has signature (id, callback(err, data))
+        function(user, fn) {
+            user.getCats(fn);      // 'getCats' has signature (callback(err, data))
+        }
+    )(req.session.user_id, function (err, cats) {
+        if (err) {
+            console.error(err);
+            response.json({ status: 'error', message: err.message });
+        } else {
+            response.json({ status: 'ok', message: 'Cats found', data: cats });
+        }
+    });
 });
 ```
 
 ---------------------------------------
-<a name="applyEach" />
+
+<a name="applyEach"></a>
 ### applyEach(fns, args..., callback)
 
-Applies the provided arguments to each function in the array, calling 
+Applies the provided arguments to each function in the array, calling
 `callback` after all functions have completed. If you only provide the first
 argument, then it will return a function which lets you pass in the
 arguments as if it were a single function call.
@@ -1142,30 +1165,27 @@ async.each(
 );
 ```
 
----------------------------------------
+__Related__
 
-<a name="applyEachSeries" />
-### applyEachSeries(arr, args..., callback)
-
-The same as [`applyEach`](#applyEach) only the functions are applied in series.
+* applyEachSeries(tasks, args..., [callback])
 
 ---------------------------------------
 
-<a name="queue" />
-### queue(worker, concurrency)
+<a name="queue"></a>
+### queue(worker, [concurrency])
 
 Creates a `queue` object with the specified `concurrency`. Tasks added to the
 `queue` are processed in parallel (up to the `concurrency` limit). If all
-`worker`s are in progress, the task is queued until one becomes available. 
+`worker`s are in progress, the task is queued until one becomes available.
 Once a `worker` completes a `task`, that `task`'s callback is called.
 
 __Arguments__
 
 * `worker(task, callback)` - An asynchronous function for processing a queued
-  task, which must call its `callback(err)` argument when finished, with an 
-  optional `error` as an argument.
+  task, which must call its `callback(err)` argument when finished, with an
+  optional `error` as an argument.  If you want to handle errors from an individual task, pass a callback to `q.push()`.
 * `concurrency` - An `integer` for determining how many `worker` functions should be
-  run in parallel.
+  run in parallel.  If omitted, the concurrency defaults to `1`.  If the concurrency is `0`, an error is thrown.
 
 __Queue objects__
 
@@ -1175,15 +1195,16 @@ methods:
 * `length()` - a function returning the number of items waiting to be processed.
 * `started` - a function returning whether or not any items have been pushed and processed by the queue
 * `running()` - a function returning the number of items currently being processed.
+* `workersList()` - a function returning the array of items currently being processed.
 * `idle()` - a function returning false if there are items waiting or being processed, or true if not.
 * `concurrency` - an integer for determining how many `worker` functions should be
   run in parallel. This property can be changed after a `queue` is created to
   alter the concurrency on-the-fly.
-* `push(task, [callback])` - add a new task to the `queue`. Calls `callback` once 
+* `push(task, [callback])` - add a new task to the `queue`. Calls `callback` once
   the `worker` has finished processing the task. Instead of a single task, a `tasks` array
   can be submitted. The respective callback is used for every task in the list.
 * `unshift(task, [callback])` - add a new task to the front of the `queue`.
-* `saturated` - a callback that is called when the `queue` length hits the `concurrency` limit, 
+* `saturated` - a callback that is called when the `queue` length hits the `concurrency` limit,
    and further tasks will be queued.
 * `empty` - a callback that is called when the last item from the `queue` is given to a `worker`.
 * `drain` - a callback that is called when the last item from the `queue` has returned from the `worker`.
@@ -1233,7 +1254,7 @@ q.unshift({name: 'bar'}, function (err) {
 
 ---------------------------------------
 
-<a name="priorityQueue" />
+<a name="priorityQueue"></a>
 ### priorityQueue(worker, concurrency)
 
 The same as [`queue`](#queue) only tasks are assigned a priority and completed in ascending priority order. There are two differences between `queue` and `priorityQueue` objects:
@@ -1244,7 +1265,7 @@ The same as [`queue`](#queue) only tasks are assigned a priority and completed i
 
 ---------------------------------------
 
-<a name="cargo" />
+<a name="cargo"></a>
 ### cargo(worker, [payload])
 
 Creates a `cargo` object with the specified payload. Tasks added to the
@@ -1260,7 +1281,7 @@ when the worker is finished.
 __Arguments__
 
 * `worker(tasks, callback)` - An asynchronous function for processing an array of
-  queued tasks, which must call its `callback(err)` argument when finished, with 
+  queued tasks, which must call its `callback(err)` argument when finished, with
   an optional `err` argument.
 * `payload` - An optional `integer` for determining how many tasks should be
   processed per round; if omitted, the default is unlimited.
@@ -1275,11 +1296,12 @@ methods:
   process per round. This property can be changed after a `cargo` is created to
   alter the payload on-the-fly.
 * `push(task, [callback])` - Adds `task` to the `queue`. The callback is called
-  once the `worker` has finished processing the task. Instead of a single task, an array of `tasks` 
+  once the `worker` has finished processing the task. Instead of a single task, an array of `tasks`
   can be submitted. The respective callback is used for every task in the list.
 * `saturated` - A callback that is called when the `queue.length()` hits the concurrency and further tasks will be queued.
 * `empty` - A callback that is called when the last item from the `queue` is given to a `worker`.
 * `drain` - A callback that is called when the last item from the `queue` has returned from the `worker`.
+* `idle()`, `pause()`, `resume()`, `kill()` - cargo inherits all of the same methods and event calbacks as [`queue`](#queue)
 
 __Example__
 
@@ -1309,21 +1331,16 @@ cargo.push({name: 'baz'}, function (err) {
 
 ---------------------------------------
 
-<a name="auto" />
-### auto(tasks, [callback])
+<a name="auto"></a>
+### auto(tasks, [concurrency], [callback])
 
-Determines the best order for running the functions in `tasks`, based on their 
-requirements. Each function can optionally depend on other functions being completed 
-first, and each function is run as soon as its requirements are satisfied. 
+Determines the best order for running the functions in `tasks`, based on their requirements. Each function can optionally depend on other functions being completed first, and each function is run as soon as its requirements are satisfied.
 
-If any of the functions pass an error to their callback, it will not 
-complete (so any other functions depending on it will not run), and the main 
-`callback` is immediately called with the error. Functions also receive an 
-object containing the results of functions which have completed so far.
+If any of the functions pass an error to their callback, the `auto` sequence will stop. Further tasks will not execute (so any other functions depending on it will not run), and the main `callback` is immediately called with the error.  Functions also receive an object containing the results of functions which have completed so far.
 
-Note, all functions are called with a `results` object as a second argument, 
+Note, all functions are called with a `results` object as a second argument,
 so it is unsafe to pass functions in the `tasks` object which cannot handle the
-extra argument. 
+extra argument.
 
 For example, this snippet of code:
 
@@ -1340,7 +1357,7 @@ argument, which will fail:
 fs.readFile('data.txt', 'utf-8', cb, {});
 ```
 
-Instead, wrap the call to `readFile` in a function which does not forward the 
+Instead, wrap the call to `readFile` in a function which does not forward the
 `results` object:
 
 ```js
@@ -1357,13 +1374,14 @@ __Arguments__
   requirements, with the function itself the last item in the array. The object's key
   of a property serves as the name of the task defined by that property,
   i.e. can be used when specifying requirements for other tasks.
-  The function receives two arguments: (1) a `callback(err, result)` which must be 
-  called when finished, passing an `error` (which can be `null`) and the result of 
+  The function receives two arguments: (1) a `callback(err, result)` which must be
+  called when finished, passing an `error` (which can be `null`) and the result of
   the function's execution, and (2) a `results` object, containing the results of
   the previously executed functions.
+* `concurrency` - An optional `integer` for determining the maximum number of tasks that can be run in parallel. By default, as many as possible.
 * `callback(err, results)` - An optional callback which is called when all the
-  tasks have been completed. It receives the `err` argument if any `tasks` 
-  pass an error to their callback. Results are always returned; however, if 
+  tasks have been completed. It receives the `err` argument if any `tasks`
+  pass an error to their callback. Results are always returned; however, if
   an error occurs, no further `tasks` will be performed, and the results
   object will only contain partial results.
 
@@ -1442,8 +1460,8 @@ new tasks much easier (and the code more readable).
 
 ---------------------------------------
 
-<a name="retry" />
-### retry([times = 5], task, [callback])
+<a name="retry"></a>
+### retry([opts = {times: 5, interval: 0}| 5], task, [callback])
 
 Attempts to get a successful response from `task` no more than `times` times before
 returning an error. If the task is successful, the `callback` will be passed the result
@@ -1452,24 +1470,41 @@ result (if any) of the final attempt.
 
 __Arguments__
 
-* `times` - An integer indicating how many times to attempt the `task` before giving up. Defaults to 5.
+* `opts` - Can be either an object with `times` and `interval` or a number.
+  * `times` - The number of attempts to make before giving up.  The default is `5`.
+  * `interval` - The time to wait between retries, in milliseconds.  The default is `0`.
+  * If `opts` is a number, the number specifies the number of times to retry, with the default interval of `0`. 
 * `task(callback, results)` - A function which receives two arguments: (1) a `callback(err, result)`
-  which must be called when finished, passing `err` (which can be `null`) and the `result` of 
+  which must be called when finished, passing `err` (which can be `null`) and the `result` of
   the function's execution, and (2) a `results` object, containing the results of
   the previously executed functions (if nested inside another control flow).
 * `callback(err, results)` - An optional callback which is called when the
   task has succeeded, or after the final failed attempt. It receives the `err` and `result` arguments of the last attempt at completing the `task`.
 
-The [`retry`](#retry) function can be used as a stand-alone control flow by passing a
-callback, as shown below:
+The [`retry`](#retry) function can be used as a stand-alone control flow by passing a callback, as shown below:
 
 ```js
+// try calling apiMethod 3 times
 async.retry(3, apiMethod, function(err, result) {
     // do something with the result
 });
 ```
 
-It can also be embeded within other control flow functions to retry individual methods
+```js
+// try calling apiMethod 3 times, waiting 200 ms between each retry 
+async.retry({times: 3, interval: 200}, apiMethod, function(err, result) {
+    // do something with the result
+});
+```
+
+```js
+// try calling apiMethod the default 5 times no delay between each retry 
+async.retry(apiMethod, function(err, result) {
+    // do something with the result
+});
+```
+
+It can also be embedded within other control flow functions to retry individual methods
 that are not as reliable, like this:
 
 ```js
@@ -1484,7 +1519,7 @@ async.auto({
 
 ---------------------------------------
 
-<a name="iterator" />
+<a name="iterator"></a>
 ### iterator(tasks)
 
 Creates an iterator function which calls the next function in the `tasks` array,
@@ -1520,10 +1555,10 @@ node> nextfn();
 
 ---------------------------------------
 
-<a name="apply" />
+<a name="apply"></a>
 ### apply(function, arguments..)
 
-Creates a continuation function with some arguments already applied. 
+Creates a continuation function with some arguments already applied.
 
 Useful as a shorthand when combined with other control flow functions. Any arguments
 passed to the returned function are added to the arguments originally passed
@@ -1571,7 +1606,7 @@ three
 
 ---------------------------------------
 
-<a name="nextTick" />
+<a name="nextTick"></a>
 ### nextTick(callback), setImmediate(callback)
 
 Calls `callback` on a later loop around the event loop. In Node.js this just
@@ -1596,10 +1631,10 @@ async.nextTick(function(){
 call_order.push('one')
 ```
 
-<a name="times" />
-### times(n, callback)
+<a name="times"></a>
+### times(n, iterator, [callback])
 
-Calls the `callback` function `n` times, and accumulates results in the same manner
+Calls the `iterator` function `n` times, and accumulates results in the same manner
 you would use with [`map`](#map).
 
 __Arguments__
@@ -1627,17 +1662,15 @@ async.times(5, function(n, next){
 });
 ```
 
-<a name="timesSeries" />
-### timesSeries(n, callback)
+__Related__
 
-The same as [`times`](#times), only the iterator is applied to each item in `arr` in
-series. The next `iterator` is only called once the current one has completed. 
-The results array will be in the same order as the original.
+* timesSeries(n, iterator, [callback])
+* timesLimit(n, limit, iterator, [callback])
 
 
 ## Utils
 
-<a name="memoize" />
+<a name="memoize"></a>
 ### memoize(fn, [hasher])
 
 Caches the results of an `async` function. When creating a hash to store function
@@ -1671,7 +1704,7 @@ fn('some name', function () {
 });
 ```
 
-<a name="unmemoize" />
+<a name="unmemoize"></a>
 ### unmemoize(fn)
 
 Undoes a [`memoize`](#memoize)d function, reverting it to the original, unmemoized
@@ -1681,7 +1714,129 @@ __Arguments__
 
 * `fn` - the memoized function
 
-<a name="log" />
+---------------------------------------
+
+<a name="ensureAsync"></a>
+### ensureAsync(fn)
+
+Wrap an async function and ensure it calls its callback on a later tick of the event loop.  If the function already calls its callback on a next tick, no extra deferral is added. This is useful for preventing stack overflows (`RangeError: Maximum call stack size exceeded`) and generally keeping [Zalgo](http://blog.izs.me/post/59142742143/designing-apis-for-asynchrony) contained.
+
+__Arguments__
+
+* `fn` - an async function, one that expects a node-style callback as its last argument
+
+Returns a wrapped function with the exact same call signature as the function passed in.
+
+__Example__
+
+```js
+function sometimesAsync(arg, callback) {
+    if (cache[arg]) {
+        return callback(null, cache[arg]); // this would be synchronous!!
+    } else {
+       doSomeIO(arg, callback); // this IO would be asynchronous
+    }
+}
+
+// this has a risk of stack overflows if many results are cached in a row
+async.mapSeries(args, sometimesAsync, done);
+
+// this will defer sometimesAsync's callback if necessary,
+// preventing stack overflows
+async.mapSeries(args, async.ensureAsync(sometimesAsync), done);
+
+```
+
+---------------------------------------
+
+<a name="constant"></a>
+### constant(values...)
+
+Returns a function that when called, calls-back with the values provided.  Useful as the first function in a `waterfall`, or for plugging values in to `auto`.
+
+__Example__
+
+```js
+async.waterfall([
+    async.constant(42),
+    function (value, next) {
+        // value === 42
+    },
+    //...
+], callback);
+
+async.waterfall([
+    async.constant(filename, "utf8"),
+    fs.readFile,
+    function (fileData, next) {
+        //...
+    }
+    //...
+], callback);
+
+async.auto({
+    hostname: async.constant("https://server.net/"),
+    port: findFreePort,
+    launchServer: ["hostname", "port", function (cb, options) {
+        startServer(options, cb);
+    }],
+    //...
+}, callback);
+
+```
+
+---------------------------------------
+
+<a name="asyncify"></a>
+<a name="wrapSync"></a>
+### asyncify(func)
+
+__Alias:__ `wrapSync`
+
+Take a sync function and make it async, passing its return value to a callback. This is useful for plugging sync functions into a waterfall, series, or other async functions. Any arguments passed to the generated function will be passed to the wrapped function (except for the final callback argument). Errors thrown will be passed to the callback.
+
+__Example__
+
+```js
+async.waterfall([
+    async.apply(fs.readFile, filename, "utf8"),
+    async.asyncify(JSON.parse),
+    function (data, next) {
+        // data is the result of parsing the text.
+        // If there was a parsing error, it would have been caught.
+    }
+], callback)
+```
+
+If the function passed to `asyncify` returns a Promise, that promises's resolved/rejected state will be used to call the callback, rather than simply the synchronous return value.  Example:
+
+```js
+async.waterfall([
+    async.apply(fs.readFile, filename, "utf8"),
+    async.asyncify(function (contents) {
+        return db.model.create(contents);
+    }),
+    function (model, next) {
+        // `model` is the instantiated model object. 
+        // If there was an error, this function would be skipped.
+    }
+], callback)
+```
+
+This also means you can asyncify ES2016 `async` functions.
+
+```js
+var q = async.queue(async.asyncify(async function (file) {
+    var intermediateStep = await processFile(file);
+    return await somePromise(intermediateStep)
+}));
+
+q.push(files);
+```
+
+---------------------------------------
+
+<a name="log"></a>
 ### log(function, arguments)
 
 Logs the result of an `async` function to the `console`. Only works in Node.js or
@@ -1710,7 +1865,7 @@ node> async.log(hello, 'world');
 
 ---------------------------------------
 
-<a name="dir" />
+<a name="dir"></a>
 ### dir(function, arguments)
 
 Logs the result of an `async` function to the `console` using `console.dir` to
@@ -1740,7 +1895,7 @@ node> async.dir(hello, 'world');
 
 ---------------------------------------
 
-<a name="noConflict" />
+<a name="noConflict"></a>
 ### noConflict()
 
 Changes the value of `async` back to its original value, returning a reference to the

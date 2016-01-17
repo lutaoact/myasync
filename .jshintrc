@@ -5,6 +5,7 @@
     "indent": 4,
     "noarg": true,
     "undef": true,
+    "unused": true,
     "trailing": true,
     "evil": true,
     "laxcomma": true,
@@ -19,6 +20,10 @@
     "browser": true,
     "node": true,
     "globals": {
-        "define": true
+        "self": true,
+        "define": true,
+        "describe": true,
+        "context": true,
+        "it": true
     }
 }
